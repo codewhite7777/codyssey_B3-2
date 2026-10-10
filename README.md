@@ -2,7 +2,7 @@
 
 Git 변경 사항을 읽어 커밋 메시지와 Pull Request 초안을 터미널에 출력하는 Python 3.10+ CLI입니다.
 
-**API 선택과 연동 방법을 먼저 확인하려면 [READ.md](READ.md)를 읽어 주세요.** 사용할 모델, API Key 설정, HTTP 요청·응답, 파라미터, 보안·오류 처리 및 검증 기준을 설명합니다.
+**사용 API는 Google Gemini입니다. [READ.md](READ.md)에서 API 선택과 연동 방법을 먼저 확인해 주세요.** 사용할 모델, API Key 설정, HTTP 요청·응답, 파라미터, 보안·오류 처리 및 검증 기준을 설명합니다.
 
 ## 과제 범위
 
