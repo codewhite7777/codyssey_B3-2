@@ -24,4 +24,12 @@ Git 변경 사항을 읽어 커밋 메시지와 Pull Request 초안을 터미널
 
 ## 검증 상태
 
-초기 계획만 등록한 상태입니다. 구현·실제 AI 호출 검증은 아직 완료되지 않았습니다.
+1단계: CLI와 Git 수집을 구현했습니다. AI 생성은 아직 연결하지 않았습니다.
+
+```bash
+python main.py inspect
+python -m unittest discover -v
+```
+
+staged/unstaged 변경을 각각 읽으며 새 파일의 본문은 `git add` 후 수집합니다.
+Git 수집 중 파일·인덱스를 변경하지 않습니다. 루트 이외의 위치와 미해결 병합 충돌은 안내 후 종료합니다.
