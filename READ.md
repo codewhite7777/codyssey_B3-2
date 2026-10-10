@@ -55,41 +55,101 @@
 
 ## 3. API Key 준비와 설정
 
-1. [Google AI Studio의 API Key 페이지](https://aistudio.google.com/apikey)에 접근합니다.
-2. 사용할 Google 프로젝트에서 Gemini API Key를 발급하고 모델 접근 권한·API 제한·사용 한도를 확인합니다.
-3. 도구를 실행하는 터미널의 환경변수에 Key를 설정합니다.
+### 3.1 과제의 근거와 이번 단계의 결정
 
-Google 문서의 SDK 예제는 `GEMINI_API_KEY` 이름을 사용하기도 합니다. 이 프로젝트는 과제 예시에 맞춰 **`AI_API_KEY` 한 이름만** 읽고 Gemini 인증 헤더에 직접 연결합니다. 두 이름을 함께 설정할 필요가 없습니다. [Gemini API Key 공식 안내](https://ai.google.dev/gemini-api/docs/api-key)
+이 과제에서 필수인 것은 **환경변수 사용**입니다. `.env` 파일을 사용하라고 권장하거나 필수로 지정한 문구는 없습니다. 근거는 제공된 B3-2 과제 원문의 다음 항목입니다.
 
-macOS/Linux의 설정 예시는 다음과 같습니다. 따옴표 안은 실제 발급받은 값으로 대체합니다.
+| 과제 위치 | 원문 또는 요구사항 | 이 프로젝트에 적용하는 방법 |
+| --- | --- | --- |
+| 4. 기능 요구 사항 → AI API 연동 | “AI API Key는 환경변수로 설정되어야 하며, 코드에 하드코딩하지 않는다.” | 프로그램은 실행 환경의 `AI_API_KEY`를 읽도록 구현 |
+| 7. 제약 사항 → AI API 사용 범위 | “AI API Key는 환경변수로만 관리하며 코드에 하드코딩하지 않는다.” | 실제 키를 소스·문서·설정 예제에 기록하지 않음 |
+| 8. 결과 예시 → API Key 미설정 | `export AI_API_KEY="YOUR_KEY"` 설정 안내 | 터미널에서 직접 환경변수를 설정하는 방법을 기본으로 안내 |
+| 4. 리포지토리 및 문서화 | 환경변수(API Key) 설정 방법 포함 | 클론 후 설정·확인·재설정 절차를 이 절에 기록 |
+
+**이번에 사용할 방법은 현재 터미널 세션에 `AI_API_KEY`를 직접 설정하는 것입니다.** 별도의 키 저장 파일이나 사용자 셸 시작 파일에 실제 키를 기록하는 절차는 사용하지 않습니다. 터미널을 새로 열면 다시 설정합니다.
+
+환경변수는 실행 환경이 프로그램에 전달하는 이름과 값입니다. `.env`는 값을 보관하는 파일이며, 파일을 만드는 것만으로 환경변수가 설정되지는 않습니다. `.env`를 사용하는 방식에는 별도의 읽기 절차가 필요합니다. 이는 선택 가능한 개발 방식이지만 **과제 자체의 권장사항은 아니며, 이번 문서의 기본 절차에도 포함하지 않습니다.** 저장소의 `.gitignore`에 `.env` 제외 규칙이 있는 것 역시 `.env` 자동 읽기 기능이 있다는 뜻은 아닙니다.
+
+Google 문서의 SDK 예제는 `GEMINI_API_KEY` 이름을 사용하기도 합니다. 이 프로젝트는 과제 예시에 맞춰 **`AI_API_KEY` 한 이름만** 사용합니다. 이후 구현할 Python 코드가 이 값을 읽어 Gemini의 `x-goog-api-key` 인증 헤더에 전달합니다. 두 변수 이름을 함께 설정할 필요가 없습니다. [Gemini API Key 공식 안내](https://ai.google.dev/gemini-api/docs/api-key)
+
+### 3.2 저장소를 클론한 뒤 무엇을 준비해야 하는가
+
+처음 내려받는 경우 다음 명령을 사용합니다. 이미 클론했다면 다시 클론하지 않고 기존 프로젝트의 루트 디렉토리로 이동합니다.
 
 ```bash
-export AI_API_KEY="YOUR_API_KEY"
+git clone https://github.com/codewhite7777/codyssey_B3-2.git
+cd codyssey_B3-2
 ```
 
-Windows PowerShell에서는 다음과 같습니다.
+`git clone`은 저장소의 코드와 커밋 기록 등을 가져오는 작업이며, **다른 사용자의 터미널 환경변수를 설정해 주지 않습니다.** 이 프로젝트는 실제 키를 저장소에 기록하지 않으므로 클론만으로 사용할 키가 제공되지 않습니다. 따라서 클론한 사람마다 자기 실행 환경에 사용할 키를 설정해야 합니다. 키를 실수로 파일에 커밋하면 그 파일도 복제될 수 있으므로 실제 키를 Git에 기록하지 않는 것이 필요합니다. 이 명령은 사용자가 수행하는 프로젝트 준비 작업이며, Python 도구가 실행하는 Git 명령에 추가되는 기능이 아닙니다. [Git clone 공식 문서](https://git-scm.com/docs/git-clone)
+
+키를 아직 발급하지 않았다면 [Google AI Studio의 API Key 페이지](https://aistudio.google.com/apikey)에서 사용할 프로젝트의 Gemini API Key를 발급합니다. 이미 발급했다면 바로 다음 설정 단계로 진행합니다. 모델 접근 권한과 사용 한도는 해당 Google 프로젝트의 설정을 따릅니다.
+
+### 3.3 현재 터미널에 API Key 설정
+
+사용하는 터미널에 해당하는 방법 하나만 실행합니다. 실제 키 값은 본인의 터미널에만 입력하고 채팅, 문서, 스크린샷에 공유하지 않습니다.
+
+#### macOS·Linux·Git Bash의 bash/zsh
+
+프로젝트 루트에서 아래 명령을 **한 줄씩** 실행합니다. `read` 명령이 입력을 기다리면 키를 붙여넣고 Enter를 누른 뒤 나머지 명령을 실행합니다. 명령 전체를 한꺼번에 붙여넣어 다음 명령문이 키 입력으로 읽히지 않도록 합니다.
+
+```bash
+printf 'Gemini API Key를 입력하세요: '
+read -r -s AI_API_KEY
+printf '\n'
+export AI_API_KEY
+```
+
+- `read -r -s`는 키를 화면에 표시하지 않고 입력받습니다. 붙여넣어도 글자가 보이지 않는 것이 정상입니다.
+- `export AI_API_KEY`는 이후 이 터미널에서 실행하는 Python이 값을 읽을 수 있게 합니다.
+- 과제 예시의 `export AI_API_KEY="YOUR_KEY"`와 같은 환경변수 설정 방식입니다. 입력을 따로 받는 이유는 실제 키를 셸 명령문에 직접 적어 명령 기록에 남기는 상황을 줄이기 위해서입니다.
+
+#### Windows PowerShell
+
+PowerShell에서는 다음과 같이 화면에 값을 표시하지 않고 입력받아 현재 세션의 환경변수에 넣습니다.
 
 ```powershell
-$env:AI_API_KEY = "YOUR_API_KEY"
+$geminiKeyInput = Read-Host 'Gemini API Key' -AsSecureString
+$env:AI_API_KEY = [System.Net.NetworkCredential]::new('', $geminiKeyInput).Password
+Remove-Variable geminiKeyInput
 ```
 
-값을 노출하지 않고 설정 여부만 확인할 수 있습니다.
+입력 단계에서만 화면 표시를 가리는 것이며, 프로그램에 전달되는 환경변수 자체가 암호화 저장소가 되는 것은 아닙니다. 키 값이나 전체 환경변수를 로그에 출력하지 않습니다. [PowerShell Read-Host](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/read-host?view=powershell-7.5) · [PowerShell 환경변수](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_environment_variables?view=powershell-7.5)
+
+### 3.4 값 없이 설정 여부 확인
+
+키를 설정한 **같은 터미널**에서 다음 명령을 실행합니다. Python의 `os.environ`은 해당 프로세스의 환경변수를 읽는 인터페이스입니다. 환경에 따라 Python 명령이 `python3`라면 맨 앞의 `python`만 `python3`로 바꿉니다. [Python 3.10 os.environ](https://docs.python.org/3.10/library/os.html#os.environ)
 
 ```bash
-python -c "import os; print('설정됨' if os.getenv('AI_API_KEY') else '미설정')"
+python -c "import os; print('설정됨' if os.environ.get('AI_API_KEY', '').strip() else '미설정')"
 ```
 
-Key를 소스, README, 커밋 메시지, PR, 스크린샷에 넣지 않습니다. `.env` 파일을 자동으로 읽는 기능도 추가하지 않고 **실행 프로세스의 환경변수만** 사용합니다. 키를 지정하는 CLI 옵션은 만들지 않습니다. 인증 헤더는 로그에 출력하지 않습니다.
+정상적으로 값이 전달되면 다음과 같이 표시됩니다.
 
-환경변수 읽기의 핵심은 다음과 같습니다. 아래는 설명용 일부 코드이며 완성된 API 클라이언트가 아닙니다.
-
-```python
-import os
-
-api_key = os.environ.get("AI_API_KEY", "").strip()
-if not api_key:
-    raise ValueError("AI_API_KEY 환경변수가 설정되지 않았습니다.")
+```text
+설정됨
 ```
+
+`미설정`이면 같은 터미널에서 3.3절을 다시 실행합니다. **이 명령은 값의 존재 여부만 확인하며, 키의 유효성·모델 접근 권한을 검증하지 않습니다. Gemini API 호출 횟수는 0회입니다.** 키가 아닌 임의의 문자열을 입력해도 `설정됨`이 나올 수 있으므로 실제 인증 성공과 구분해야 합니다.
+
+### 3.5 새 터미널·다른 PC에서 다시 실행할 때
+
+현재 세션에 설정한 환경변수는 새 터미널이나 다른 PC에 자동으로 등록되지 않습니다. 새로 연 프로젝트 터미널에서 **3.3절의 설정 → 3.4절의 확인**을 다시 수행합니다. 키를 다시 설정하기 위해 저장소를 다시 클론할 필요는 없습니다.
+
+이 프로젝트의 기본 방식은 키를 자동으로 영구 저장하지 않습니다. 터미널 설정 후에 그 터미널에서 실행한 자식 프로세스에는 값이 전달되지만, 이미 별도로 실행 중인 IDE·터미널의 환경변수까지 바뀌지는 않습니다. IDE에서 실행할 경우에도 실제로 프로그램을 실행하는 환경에서 설정했는지 확인해야 합니다.
+
+### 3.6 왜 이렇게 처리하며, 어디까지 확인하면 되는가
+
+- **코드와 인증 정보를 분리:** 소스 코드는 GitHub로 공유하고, 사용자별 키는 각자의 실행 환경에서 제공합니다. 이는 과제 4번·7번의 하드코딩 금지 조건을 충족하기 위한 설계입니다.
+- **키가 Git 변경에 섞일 가능성을 줄임:** 키 값을 프로젝트 파일에 기록하지 않으므로 키 설정 자체가 diff·커밋 대상이 되지 않습니다. 실수로 다른 파일에 키를 적는 경우까지 방지되는 것은 아니므로 전송 전 검토와 안전 모드는 별도로 필요합니다.
+- **오류의 원인을 나눠 확인:** 환경변수 미설정과 API 서버가 키를 거부하는 상황을 구분할 수 있습니다. 전자는 로컬 설정 문제이고, 후자는 실제 요청 단계에서 확인할 문제입니다.
+- **불필요한 요청 없이 준비 상태 확인:** 이번 단계에서는 환경변수 전달만 확인하고, 실제 인증·AI 생성은 해당 기능 구현 단계에서 따로 검증합니다.
+
+이번 준비 단계의 완료 기준은 **키를 파일이나 Git에 기록하지 않고 설정했으며, 같은 터미널에서 Python이 `설정됨`을 출력하는 것**입니다. 환경변수 설정은 저장소 파일 변경이 아니므로 키 설정 자체는 커밋하지 않습니다. 설정 방법과 근거를 기록한 이 문서만 공유합니다.
+
+현재 `main`의 기능 코드는 Git 수집까지 구현된 상태입니다. 프로그램의 API Key 읽기, 누락 시 오류 종료, Gemini 요청은 후속 단계에서 사용자가 하나씩 구현할 대상입니다. `AI_API_KEY`가 없을 때 설정 안내를 출력하고 API 요청 없이 종료하는 동작은 과제 4번·8번 및 이 문서 8절의 오류 처리 계약으로 검증합니다. **이 절의 설정 확인을 통과했다고 해서 API 연동 구현이 완료된 것은 아닙니다.**
+
+문서 명령 검증 기록(2026-10-10): bash와 Python 3.12 환경에서 실제 키가 아닌 확인용 문자열로 미설정 표시, 입력·export 후 자식 Python의 설정 확인, 출력에 입력값이 포함되지 않음, 별도의 초기 환경을 가진 셸에서 미설정 유지의 네 항목을 확인했습니다. zsh·PowerShell에서의 직접 실행과 실제 Gemini 인증은 아직 검증하지 않았습니다.
 
 ## 4. Python에서 보낼 HTTP 요청
 
