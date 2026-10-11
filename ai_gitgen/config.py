@@ -4,6 +4,10 @@ import os
 
 from .errors import UserError
 
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_TEMPERATURE = 1.0
+DEFAULT_MAX_TOKENS = 4096
+
 
 def load_api_key() -> str:
     """Return AI_API_KEY without surrounding whitespace, or explain its absence."""
