@@ -291,6 +291,8 @@ with urlopen(request, timeout=30) as response:
 
 ## 5. CLI 옵션과 API 파라미터의 연결
 
+**사용 안내 기준:** 과제 4번은 API 파라미터를 바꿀 수 있는 옵션과 기본값을 요구합니다. 매번 모든 값을 입력하라는 요구는 아닙니다. 기본 실행은 `python3 main.py commit` 또는 `python3 main.py pr`이며, 안전 모드는 `--safe-mode`를 붙일 때 적용합니다. 아래 안내는 기본값을 생략하고 변경할 옵션만 적도록 정리합니다. 프로그램의 옵션·기본값·안전 모드 동작은 그대로 유지합니다.
+
 | 옵션 | 기본값 | 반영 위치 | 의미 |
 | --- | --- | --- | --- |
 | `--model` / `-model` | `gemini-3.1-flash-lite` | 요청 URL의 모델 이름 | 사용할 Gemini 모델 |
@@ -317,16 +319,14 @@ Gemini 3의 기존 개발 가이드는 `1.0`을 권장하며, 낮추었을 때 �
 
 기본 모델의 추론 설정은 모델 기본값을 사용합니다. 사고 내용 반환을 요청하지 않으며, 응답에 `thought: true`인 부분이 있어도 최종 초안에 포함하지 않습니다. [Gemini thinking 안내](https://ai.google.dev/gemini-api/docs/generate-content/thinking)
 
-현재 사용할 수 있는 커밋·PR 생성 명령 예시입니다. 파라미터 비교에서는 같은 diff와 생성 명령을 유지하고 한 값씩 바꿉니다.
+기본 실행 명령입니다. 모델·temperature·토큰 상한을 생략하면 위 표의 기본값을 사용합니다.
 
 ```bash
-python main.py commit --safe-mode --context "변경 이유: 빈 입력에서 발생하던 오류 수정"
-python main.py pr --safe-mode --context "변경 이유: 빈 입력에서 발생하던 오류 수정"
-python main.py commit --safe-mode --model gemini-3.1-flash-lite --temperature 1.0 --max-tokens 4096
-python main.py commit --safe-mode --temperature 0.5 --max-tokens 4096
+python3 main.py commit
+python3 main.py pr
 ```
 
-파라미터 비교에서는 같은 Git diff와 모델 이름을 사용하고 옵션·결과를 기록합니다. 같은 입력과 옵션에서 문장이 매번 완전히 같다고 가정하지 않습니다.
+안전 모드는 `python3 main.py commit --safe-mode`처럼 필요한 옵션만 붙입니다. 파라미터 비교에서는 같은 Git diff·모델·생성 명령을 유지하고 바꿀 값 하나만 명시합니다. 구체적인 비교 명령은 11.3절에 있습니다. 같은 입력과 옵션에서 문장이 매번 완전히 같다고 가정하지 않습니다.
 
 ## 6. AI가 반환하도록 요구할 초안 구조
 
@@ -663,30 +663,29 @@ git diff --cached
 
 **2. 커밋 생성을 한 번 확인합니다.**
 
+여기서는 diff 전송량을 제한하려고 `--safe-mode`만 붙입니다. 모델·temperature·토큰 상한은 기본값을 사용하므로 직접 입력할 필요가 없습니다.
+
 ```bash
-python3 main.py commit --safe-mode --model gemini-3.1-flash-lite --temperature 1.0 --max-tokens 4096
-echo $?
+python3 main.py commit --safe-mode
 ```
 
-`echo $?`는 바로 앞 명령의 종료 코드를 출력합니다. `[DONE] 커밋 메시지 생성 완료`, 실제 변경 요약·커밋 제목, 요청 횟수 1회와 종료 코드 0을 확인합니다. 제목은 한 줄·최대 72자이며 50자 이내를 권장합니다. 오류가 나오면 후속 API 실행 전에 그 원인을 확인합니다. Key 값은 공유하지 않습니다.
+`[DONE] 커밋 메시지 생성 완료`, 실제 변경 요약·커밋 제목과 요청 횟수 1회를 확인합니다. 제목은 한 줄·최대 72자이며 50자 이내를 권장합니다. 오류가 나오면 후속 API 실행 전에 그 원인을 확인합니다. Key 값은 공유하지 않습니다. 종료 코드까지 확인하려는 경우에만 실행 직후 `echo $?`를 사용할 수 있습니다. 이는 별도의 셸 확인 명령으로, 프로그램 실행에 필요한 단계가 아닙니다.
 
 **3. 같은 diff로 PR 기준 결과와 비교 결과를 한 번씩 생성합니다.** 첫 PR의 성공을 확인한 뒤 두 번째 명령을 실행합니다.
 
 ```bash
-python3 main.py pr --safe-mode --model gemini-3.1-flash-lite --temperature 1.0 --max-tokens 4096
-echo $?
+python3 main.py pr --safe-mode
 ```
 
 ```bash
-python3 main.py pr --safe-mode --model gemini-3.1-flash-lite --temperature 0.5 --max-tokens 4096
-echo $?
+python3 main.py pr --safe-mode --temperature 0.5
 ```
 
 PR 제목 한 줄·최대 80자, `## Why`·`## What`·`## How to Test`와 각 섹션 최소 1개 불릿을 확인합니다. 변경 이유·핵심 변경·테스트 제안이 실제 diff와 맞는지도 검토합니다. 두 PR은 temperature만 바꾸며 기본 설정 자체를 0.5로 변경하지 않습니다. 커밋과 PR의 차이는 작성 지시가 다르므로 파라미터 비교 자료로 사용하지 않습니다.
 
 **4. 실제 관찰을 기록합니다.** 아래 세 실행이 모두 요청하는 경로로 진행하면 총 3회이며, 실행당 최대 1회 제한은 유지됩니다. 반복 실행은 요청을 추가하므로 차이가 나올 때까지 무작정 재실행하지 않습니다.
 
-| 실행 | 명령·temperature·토큰 상한 | 실제 출력·종료 코드·호출 횟수 | 제목 길이·본문 구조·내용 검토 |
+| 실행 | 명령·temperature·토큰 상한 | 실제 출력·호출 횟수 | 제목 길이·본문 구조·내용 검토 |
 | --- | --- | --- | --- |
 | 커밋 | `commit` · 1.0 · 4096 | 실행 대기 | 검토 대기 |
 | PR 기준 | `pr` · 1.0 · 4096 | 실행 대기 | 검토 대기 |

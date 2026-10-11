@@ -34,10 +34,11 @@ export AI_API_KEY
 macOS 예시입니다. Python 명령 이름이 `python`인 환경에서는 `python3`를 `python`으로 바꿉니다.
 
 ```bash
-python3 main.py inspect
-python3 main.py commit --safe-mode
-python3 main.py pr --safe-mode --context "README.md에 실행 방법을 추가한 변경"
+python3 main.py commit
+python3 main.py pr
 ```
+
+이 두 명령만으로 기본 설정을 사용해 실행할 수 있습니다. 아래 옵션들은 필요할 때만 붙입니다. 과제는 파라미터를 변경할 수 있는 옵션과 기본값을 요구하며, 매번 모든 값을 입력하도록 요구하지 않습니다.
 
 - 프로젝트 루트에서 `git status`와 staged·unstaged의 `git diff`를 읽습니다.
 - 변경이 없으면 `변경 사항이 없습니다`를 출력하고 종료합니다. 새 파일만 있으면 `git add` 후 재실행하도록 안내합니다.
@@ -46,6 +47,12 @@ python3 main.py pr --safe-mode --context "README.md에 실행 방법을 추가�
 - staged와 unstaged를 함께 요약합니다. 실제 커밋에는 staged 내용만 들어가므로 초안을 적용할 때 대상 변경을 확인합니다.
 
 ### `--safe-mode`의 의미
+
+안전 모드로 실행할 때는 옵션 하나만 추가합니다.
+
+```bash
+python3 main.py commit --safe-mode
+```
 
 `--safe-mode`는 값 없이 붙이는 옵션이며, 생략하면 파일·줄 제한을 적용하지 않습니다. 지정하면 **Gemini 요청 전에 diff가 있는 추적 파일을 최대 10개, 모든 파일의 staged/unstaged diff 합계를 최대 200줄**로 제한합니다. diff 헤더·문맥·추가·삭제 줄을 모두 셉니다. 일부 변경을 제외하면 터미널에 경고하고 프롬프트에도 일부 diff임을 표시합니다.
 
@@ -62,10 +69,10 @@ python3 main.py pr --safe-mode --context "README.md에 실행 방법을 추가�
 | `--max-tokens` | `4096` | 양의 정수, Gemini의 `maxOutputTokens`에 전달하는 생성 토큰 상한 |
 | `--context` | 빈 문자열 | 변경 이유·요구사항을 프롬프트에 추가 |
 
-두 생성 명령에서 같은 옵션을 사용합니다. 앞의 세 옵션은 과제 예시의 `-model`, `-temperature`, `-max-tokens` 표기도 받습니다. 파라미터의 의미와 선택 근거는 [READ.md 5절](READ.md#5-cli-옵션과-api-파라미터의-연결)에 있습니다.
+두 생성 명령에서 같은 옵션을 사용합니다. **생략하면 위 기본값이 적용되므로 변경할 값만 입력합니다.** 앞의 세 옵션은 과제 예시의 `-model`, `-temperature`, `-max-tokens` 표기도 받습니다. 파라미터의 의미와 선택 근거는 [READ.md 5절](READ.md#5-cli-옵션과-api-파라미터의-연결)에 있습니다. 예를 들어 안전 모드를 유지하며 temperature만 바꾸려면 다음과 같이 실행합니다.
 
 ```bash
-python3 main.py commit --safe-mode --model gemini-3.1-flash-lite --temperature 0.5 --max-tokens 4096
+python3 main.py pr --safe-mode --temperature 0.5
 ```
 
 ### 출력 예시
@@ -130,10 +137,10 @@ python3 -m unittest discover -v
 
 **실제 Gemini 인증·생성 품질과 파라미터에 따른 출력 차이는 아직 검증하지 않았습니다.** 작업 환경에는 Key가 없으며 사용자 Mac 터미널의 환경변수는 별개입니다. 최신 코드와 실제 Key가 설정된 같은 터미널에서 검토한 추적 파일 변경을 대상으로 진행합니다.
 
-1. `commit`을 기본 모델·temperature 1.0·토큰 상한 4096·`--safe-mode`로 한 번 실행해 생성 성공을 확인합니다.
-2. 같은 변경 내용으로 `pr`을 같은 옵션으로 한 번 실행합니다.
-3. 같은 PR 입력을 유지하고 temperature만 0.5로 바꿔 한 번 실행합니다.
-4. 실제 출력·종료 코드·호출 횟수, 제목 길이·PR 구조·내용의 정확성, 두 PR의 표현과 디테일 차이를 기록합니다.
+1. `python3 main.py commit --safe-mode`를 한 번 실행해 생성 성공을 확인합니다.
+2. 같은 변경 내용으로 `python3 main.py pr --safe-mode`를 실행합니다.
+3. 같은 PR 입력을 유지하고 `python3 main.py pr --safe-mode --temperature 0.5`를 실행합니다.
+4. 실제 출력·호출 횟수, 제목 길이·PR 구조·내용의 정확성, 두 PR의 표현과 디테일 차이를 기록합니다.
 
 복사해서 실행할 명령과 대기 중인 기록표는 **[READ.md 11.3절](READ.md)**에 있습니다. 각 실행의 성공을 확인한 뒤 다음으로 진행합니다. 비교 중에는 파일·브랜치·staged 상태·context를 바꾸지 않으며, 출력 기록도 세 실행 후에 문서에 반영합니다. 세 실행이 모두 요청하면 합계 3회입니다. 토큰 상한은 사용량이 아니며 결과 차이를 보장하지 않습니다. 실제 출력의 관찰 결과를 확인한 뒤 완료 여부를 판단합니다.
 
