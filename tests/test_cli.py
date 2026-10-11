@@ -10,13 +10,14 @@ from tests.helpers import RepositoryTestCase
 MAIN = Path(__file__).resolve().parents[1] / "main.py"
 FAKE_KEY = "FAKE_KEY_FOR_TEST"
 CONFIRMED_MESSAGE = "[INFO] AI_API_KEY 환경변수 설정을 확인했습니다."
+MASKING_MESSAGE = "[INFO] 현재 API Key 마스킹 적용 완료: diff·파일명·브랜치"
 MISSING_KEY_MESSAGE = (
     "AI_API_KEY 환경변수가 설정되지 않았습니다. "
     "READ.md의 3.3절에 따라 같은 터미널에서 설정해 주세요."
 )
 NOT_IMPLEMENTED_MESSAGE = (
     "Gemini API 호출과 초안 생성은 아직 구현되지 않았습니다. "
-    "현재 단계는 API Key 설정 확인까지입니다."
+    "현재 단계는 API Key 마스킹 연결까지입니다."
 )
 
 
@@ -47,6 +48,8 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.assertIn("[ERROR] " + MISSING_KEY_MESSAGE, result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertNotIn(CONFIRMED_MESSAGE, result.stdout)
+                    self.assertNotIn(MASKING_MESSAGE, result.stdout)
+                    self.assertNotIn('"app.py"', result.stdout)
 
     def test_configured_key_reaches_unimplemented_generation_without_exposing_it(self):
         self.baseline()
@@ -57,11 +60,33 @@ class ApiKeyCliTests(RepositoryTestCase):
                     result = self.run_cli(command, key)
                     self.assertEqual(result.returncode, 1)
                     self.assertIn(CONFIRMED_MESSAGE, result.stdout)
+                    self.assertIn(MASKING_MESSAGE, result.stdout)
                     self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
                     self.assertIn("[ERROR] " + NOT_IMPLEMENTED_MESSAGE, result.stderr)
                     self.assertNotIn(MISSING_KEY_MESSAGE, result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
+
+    def test_generation_commands_mask_tracked_and_untracked_file_names(self):
+        tracked_name = f"tracked-{FAKE_KEY}.py"
+        untracked_name = f"new-{FAKE_KEY}.py"
+        self.baseline(name=tracked_name)
+        (self.root / tracked_name).write_text(
+            "value = 'FAKE_KEY_FOR_TEST'\n", encoding="utf-8",
+        )
+        (self.root / untracked_name).write_text("value = 2\n", encoding="utf-8")
+
+        for command in ("commit", "pr"):
+            with self.subTest(command=command):
+                result = self.run_cli(command, FAKE_KEY)
+
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(MASKING_MESSAGE, result.stdout)
+                self.assertIn('"tracked-[REDACTED].py"', result.stdout)
+                self.assertIn('"new-[REDACTED].py"', result.stdout)
+                self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
+                self.assertIn("[ERROR] " + NOT_IMPLEMENTED_MESSAGE, result.stderr)
+                self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
 
     def test_inspect_with_tracked_changes_does_not_require_a_key(self):
         self.baseline()
@@ -73,6 +98,7 @@ class ApiKeyCliTests(RepositoryTestCase):
         self.assertIn("Git status 수집 완료", result.stdout)
         self.assertEqual(result.stderr, "")
         self.assertNotIn(CONFIRMED_MESSAGE, result.stdout)
+        self.assertNotIn(MASKING_MESSAGE, result.stdout)
 
     def test_clean_repository_does_not_require_a_key(self):
         self.baseline()
@@ -83,6 +109,7 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertIn("변경 사항이 없습니다", result.stdout)
                 self.assertEqual(result.stderr, "")
                 self.assertNotIn(CONFIRMED_MESSAGE, result.stdout)
+                self.assertNotIn(MASKING_MESSAGE, result.stdout)
 
     def test_untracked_only_repository_does_not_require_a_key(self):
         (self.root / "new.py").write_text("value = 1\n", encoding="utf-8")
@@ -94,6 +121,7 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertIn("git add", result.stdout)
                 self.assertEqual(result.stderr, "")
                 self.assertNotIn(CONFIRMED_MESSAGE, result.stdout)
+                self.assertNotIn(MASKING_MESSAGE, result.stdout)
 
 
 if __name__ == "__main__":

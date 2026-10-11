@@ -7,6 +7,7 @@ import sys
 from .config import load_api_key
 from .errors import UserError
 from .git_changes import collect_changes
+from .safety import redact_changes
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,10 @@ def main(argv: list[str] | None = None) -> int:
         if not changes.files:
             print("[INFO] 변경 사항이 없습니다.")
             return 0
+        if arguments.command in ("commit", "pr") and changes.tracked_files:
+            api_key = load_api_key()
+            # Use real paths for Git reads, then mask before displaying paths.
+            changes = redact_changes(changes, api_key)
         print(f"[INFO] Git status 수집 완료: {len(changes.files)}개 파일 변경 감지")
         print(f"[INFO] Git diff 수집 완료: {changes.diff_lines}줄")
         for item in changes.files:
@@ -31,12 +36,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "inspect":
             return 0
-        load_api_key()
         print("[INFO] AI_API_KEY 환경변수 설정을 확인했습니다.")
+        print("[INFO] 현재 API Key 마스킹 적용 완료: diff·파일명·브랜치")
         print("[INFO] Gemini API 호출 횟수: 0회")
         raise UserError(
             "Gemini API 호출과 초안 생성은 아직 구현되지 않았습니다. "
-            "현재 단계는 API Key 설정 확인까지입니다."
+            "현재 단계는 API Key 마스킹 연결까지입니다."
         )
     except UserError as error:
         print(f"[ERROR] {error}", file=sys.stderr)
