@@ -2,26 +2,74 @@
 
 import argparse
 import json
+import re
 import sys
 
-from .config import load_api_key
+from .api_client import generate_text
+from .config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE, load_api_key
 from .errors import UserError
+from .formatting import format_commit
 from .git_changes import collect_changes
-from .safety import MAX_DIFF_LINES, MAX_FILES, limit_changes, redact_changes
+from .prompts import COMMIT_SYSTEM_INSTRUCTION, build_commit_prompt
+from .safety import MAX_DIFF_LINES, MAX_FILES, limit_changes, redact, redact_changes
+
+
+def _model_name(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
+        raise argparse.ArgumentTypeError("모델은 영문·숫자·점·밑줄·하이픈의 단일 이름으로 입력해 주세요.")
+    return value
+
+
+def _temperature(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("temperature는 0~2 사이의 숫자여야 합니다.") from error
+    if not 0 <= number <= 2:
+        raise argparse.ArgumentTypeError("temperature는 유한한 0~2 사이의 값이어야 합니다.")
+    return number
+
+
+def _positive_int(value: str) -> int:
+    try:
+        number = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("max-tokens는 양의 정수여야 합니다.") from error
+    if number <= 0:
+        raise argparse.ArgumentTypeError("max-tokens는 양의 정수여야 합니다.")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Git 변경 사항으로 커밋/PR 초안 생성")
+    parser = argparse.ArgumentParser(
+        description="Git 변경 사항으로 커밋 초안 생성 (PR 생성은 다음 단계)",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument("command", choices=("inspect", "commit", "pr"))
     parser.add_argument(
         "--safe-mode", action="store_true",
         help="commit/pr 입력을 최대 10개 파일·합계 200줄의 diff로 제한",
     )
+    parser.add_argument(
+        "--model", "-model", type=_model_name,
+        default=DEFAULT_MODEL, help="Gemini 모델 이름",
+    )
+    parser.add_argument(
+        "--temperature", "-temperature", type=_temperature,
+        default=DEFAULT_TEMPERATURE, help="표현의 변동성 (0~2)",
+    )
+    parser.add_argument(
+        "--max-tokens", "-max-tokens", type=_positive_int,
+        default=DEFAULT_MAX_TOKENS, help="생성 토큰 수 상한",
+    )
+    parser.add_argument("--context", default="", help="변경 이유·요구사항")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
+    api_key = ""
+    api_calls = 0
     try:
         changes = collect_changes()
         if not changes.files:
@@ -42,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print("[INFO] AI_API_KEY 환경변수 설정을 확인했습니다.")
         print("[INFO] 현재 API Key 마스킹 적용 완료: diff·파일명·브랜치")
+        partial = False
         if arguments.safe_mode:
             original_lines = changes.diff_lines
             changes = limit_changes(changes)
@@ -49,16 +98,40 @@ def main(argv: list[str] | None = None) -> int:
                 f"[INFO] 안전 모드 적용: {len(changes.files)}개 파일, "
                 f"{changes.diff_lines}줄 (최대 {MAX_FILES}개 파일·{MAX_DIFF_LINES}줄)"
             )
-            if changes.diff_lines < original_lines:
+            partial = changes.diff_lines < original_lines
+            if partial:
                 print("[WARN] 전송 제한으로 일부 변경만 AI 입력에 포함합니다.")
-        print("[INFO] Gemini API 호출 횟수: 0회")
-        raise UserError(
-            "Gemini API 호출과 초안 생성은 아직 구현되지 않았습니다. "
-            "현재 단계는 최소 안전 모드까지입니다."
+        if arguments.command == "pr":
+            raise UserError("PR 초안 생성은 다음 단계입니다. 현재는 commit 명령을 사용해 주세요.")
+        if not changes.diff_lines:
+            print("[INFO] 전송할 diff가 없습니다.")
+            return 0
+        prompt = build_commit_prompt(changes, redact(arguments.context, api_key), partial)
+        print(redact(
+            f"[INFO] Gemini 요청 설정: model={arguments.model}, "
+            f"temperature={arguments.temperature}, max_tokens={arguments.max_tokens}",
+            api_key,
+        ))
+        print("[INFO] Gemini API 요청 중...")
+        api_calls = 1
+        response = generate_text(
+            api_key=api_key, model=arguments.model,
+            temperature=arguments.temperature, max_tokens=arguments.max_tokens,
+            system_instruction=COMMIT_SYSTEM_INSTRUCTION, prompt=prompt,
         )
+        output, adjusted = format_commit(response, secret=api_key)
+        if adjusted:
+            print("[WARN] 커밋 제목의 공백 또는 길이를 정리했습니다. 내용을 검토해 주세요.")
+        print("[DONE] 커밋 메시지 생성 완료")
+        print(output)
+        print("[INFO] AI가 만든 초안입니다. 변경 내용과 제목을 검토한 뒤 적용해 주세요.")
+        return 0
     except UserError as error:
-        print(f"[ERROR] {error}", file=sys.stderr)
+        print(f"[ERROR] {redact(str(error), api_key)}", file=sys.stderr)
         return 1
+    finally:
+        if arguments.command in ("commit", "pr"):
+            print(f"[INFO] Gemini API 호출 횟수: {api_calls}회")
 
 
 if __name__ == "__main__":
