@@ -2,7 +2,7 @@ from dataclasses import asdict
 import unittest
 
 from ai_gitgen.git_changes import FileChange, GitChanges, collect_changes
-from ai_gitgen.safety import redact, redact_changes
+from ai_gitgen.safety import limit_changes, redact, redact_changes
 from tests.helpers import RepositoryTestCase
 
 
@@ -168,6 +168,89 @@ class RedactCollectedChangesTests(RepositoryTestCase):
         self.assertEqual(app.read_bytes(), original_file)
         self.assertEqual(index.read_bytes(), original_index)
         self.assertEqual(asdict(changes), original_changes)
+
+
+class LimitChangesTests(unittest.TestCase):
+    def test_keeps_first_ten_files_with_tracked_diffs_and_skips_empty_files(self):
+        tracked = tuple(
+            FileChange(" M", f"file-{number}.py", unstaged_diff=f"+value = {number}\n")
+            for number in range(11)
+        )
+        skipped = (
+            FileChange(" M", "empty.py"),
+            FileChange("??", "untracked.py", unstaged_diff="+not tracked\n"),
+        )
+        for count in (10, 11):
+            with self.subTest(tracked_files=count):
+                changes = GitChanges("feature/limited", skipped + tracked[:count])
+                original = asdict(changes)
+
+                result = limit_changes(changes)
+
+                self.assertEqual(result, GitChanges("feature/limited", tracked[:10]))
+                self.assertEqual(len(result.files), 10)
+                self.assertIsNot(result, changes)
+                self.assertEqual(asdict(changes), original)
+
+    def test_shares_two_hundred_lines_across_files_and_both_diffs(self):
+        first = FileChange(
+            "MM", "first.py",
+            staged_diff="-first staged\n" * 70,
+            unstaged_diff="+first unstaged\n" * 50,
+        )
+        second_staged = "-second staged\r\n" * 60
+        kept_unstaged = "+second unstaged\n" * 20
+        expected_second = FileChange(
+            "MM", "second.py",
+            staged_diff=second_staged,
+            unstaged_diff=kept_unstaged,
+        )
+        cases = (
+            (first, expected_second),
+            (
+                first,
+                FileChange(
+                    "MM", "second.py",
+                    staged_diff=second_staged,
+                    unstaged_diff=kept_unstaged + "+excluded line\n",
+                ),
+                FileChange(" M", "later.py", unstaged_diff="+excluded file\n"),
+            ),
+        )
+        for files in cases:
+            with self.subTest(input_lines=sum(
+                len(item.staged_diff.splitlines()) + len(item.unstaged_diff.splitlines())
+                for item in files
+            )):
+                changes = GitChanges("main", files)
+                original = asdict(changes)
+
+                result = limit_changes(changes)
+
+                self.assertEqual(result, GitChanges("main", (first, expected_second)))
+                self.assertEqual(result.diff_lines, 200)
+                self.assertEqual(asdict(changes), original)
+
+    def test_preserves_below_limit_text_metadata_and_empty_input(self):
+        cases = (
+            GitChanges("feature/rename", (
+                FileChange(
+                    "RM", "new.py", "old.py",
+                    staged_diff="-이전 값\r\n+새 값",
+                    unstaged_diff=" context\n+추가 값\n",
+                ),
+            )),
+            GitChanges("main", ()),
+        )
+        for changes in cases:
+            with self.subTest(branch=changes.branch):
+                original = asdict(changes)
+
+                result = limit_changes(changes)
+
+                self.assertEqual(result, changes)
+                self.assertIsNot(result, changes)
+                self.assertEqual(asdict(changes), original)
 
 
 if __name__ == "__main__":

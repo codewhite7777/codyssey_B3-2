@@ -17,12 +17,12 @@ MISSING_KEY_MESSAGE = (
 )
 NOT_IMPLEMENTED_MESSAGE = (
     "Gemini API 호출과 초안 생성은 아직 구현되지 않았습니다. "
-    "현재 단계는 API Key 마스킹 연결까지입니다."
+    "현재 단계는 최소 안전 모드까지입니다."
 )
 
 
 class ApiKeyCliTests(RepositoryTestCase):
-    def run_cli(self, command, key=None):
+    def run_cli(self, command, key=None, *options):
         environment = os.environ.copy()
         # Never pass the runner's real provider keys to a CLI test process.
         for name in ("AI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
@@ -32,7 +32,7 @@ class ApiKeyCliTests(RepositoryTestCase):
         environment["PYTHONDONTWRITEBYTECODE"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return subprocess.run(
-            [sys.executable, str(MAIN), command],
+            [sys.executable, str(MAIN), command, *options],
             cwd=self.root, env=environment, capture_output=True,
             text=True, encoding="utf-8", timeout=30, check=False,
         )
@@ -87,6 +87,37 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
                 self.assertIn("[ERROR] " + NOT_IMPLEMENTED_MESSAGE, result.stderr)
                 self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
+
+    def test_safe_mode_limits_generation_input_only_when_requested(self):
+        tracked_name = f"app-{FAKE_KEY}.py"
+        self.baseline(name=tracked_name)
+        (self.root / tracked_name).write_text(
+            "value = 1\n" + "".join(
+                f"# added {number}: {FAKE_KEY}\n" for number in range(220)
+            ),
+            encoding="utf-8",
+        )
+        warning = "[WARN] 전송 제한으로 일부 변경만 AI 입력에 포함합니다."
+
+        for command in ("commit", "pr"):
+            with self.subTest(command=command):
+                limited = self.run_cli(command, FAKE_KEY, "--safe-mode")
+                normal = self.run_cli(command, FAKE_KEY)
+
+                self.assertIn(
+                    "[INFO] 안전 모드 적용: 1개 파일, 200줄 (최대 10개 파일·200줄)",
+                    limited.stdout,
+                )
+                self.assertIn(warning, limited.stdout)
+                self.assertNotIn("[INFO] 안전 모드 적용:", normal.stdout)
+                self.assertNotIn(warning, normal.stdout)
+                for result in (limited, normal):
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn(MASKING_MESSAGE, result.stdout)
+                    self.assertIn('"app-[REDACTED].py"', result.stdout)
+                    self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
+                    self.assertIn("[ERROR] " + NOT_IMPLEMENTED_MESSAGE, result.stderr)
+                    self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
 
     def test_inspect_with_tracked_changes_does_not_require_a_key(self):
         self.baseline()
