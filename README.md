@@ -26,7 +26,9 @@ Git 변경 사항을 읽어 커밋 메시지와 Pull Request 초안을 터미널
 
 ## 검증 상태
 
-1단계: CLI와 Git 수집을 구현했습니다. AI 생성은 아직 연결하지 않았습니다.
+1단계 CLI·Git 수집과 2-1단계 지정 문자열 마스킹 함수를 구현했습니다. CLI에 안전 모드를 연결하는 작업과 AI 생성은 후속 단계입니다.
+
+2026-10-11 검증: 기존 Git 수집·해석 테스트 12개와 마스킹 테스트 4개, **총 16개 테스트를 통과**했습니다. 마스킹 확인에는 가짜 값만 사용했으며 Gemini API 호출은 0회입니다.
 
 ```bash
 python main.py inspect
@@ -35,3 +37,18 @@ python -m unittest discover -v
 
 staged/unstaged 변경을 각각 읽으며 새 파일의 본문은 `git add` 후 수집합니다.
 Git 수집 중 파일·인덱스를 변경하지 않습니다. 루트 이외의 위치와 미해결 병합 충돌은 안내 후 종료합니다.
+
+## 2-1단계: 지정한 민감 문자열 가리기
+
+`ai_gitgen/safety.py`의 `redact(text, secret)`는 입력 문장에 있는 지정 문자열을 `[REDACTED]`로 바꾸어 반환합니다. 같은 값이 여러 번 나오면 모두 바꾸고, `secret`이 빈 문자열이거나 입력에 없으면 원문을 유지합니다. Git·환경변수·API 접근 없이 문자열 처리만 담당합니다.
+
+실제 API Key를 사용하지 않고 다음 명령으로 확인합니다.
+
+```bash
+python -c "from ai_gitgen.safety import redact; print(redact('token=FAKE_KEY_FOR_TEST', 'FAKE_KEY_FOR_TEST'))"
+python -m unittest tests.test_safety -v
+```
+
+첫 명령의 예상 결과는 `token=[REDACTED]`입니다. 두 번째 명령은 한 번 등장·여러 번 등장·등장하지 않음·빈 `secret`의 네 상황을 확인합니다. 과제 근거와 함수의 책임은 [READ.md의 9.1절](READ.md#91-2-1단계-지정-문자열-마스킹-구현)에 설명합니다.
+
+이 함수는 지정받은 값만 가립니다. 알려지지 않은 키·이메일 등의 패턴 탐지, 전송량 제한, CLI의 `--safe-mode` 연결은 다음 단계에서 구현합니다.
