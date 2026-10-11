@@ -23,7 +23,7 @@ CONFIRMED_MESSAGE = "[INFO] AI_API_KEY 환경변수 설정을 확인했습니다
 MASKING_MESSAGE = "[INFO] 현재 API Key 마스킹 적용 완료: diff·파일명·브랜치"
 MISSING_KEY_MESSAGE = (
     "AI_API_KEY 환경변수가 설정되지 않았습니다. "
-    "READ.md의 3.3절에 따라 같은 터미널에서 설정해 주세요."
+    "README.md의 'API Key 입력' 안내에 따라 같은 터미널에서 설정해 주세요."
 )
 
 

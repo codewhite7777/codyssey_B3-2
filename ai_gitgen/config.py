@@ -24,6 +24,6 @@ def load_api_key() -> str:
     if not api_key:
         raise UserError(
             "AI_API_KEY 환경변수가 설정되지 않았습니다. "
-            "READ.md의 3.3절에 따라 같은 터미널에서 설정해 주세요."
+            "README.md의 'API Key 입력' 안내에 따라 같은 터미널에서 설정해 주세요."
         )
     return api_key
