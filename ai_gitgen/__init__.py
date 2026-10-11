@@ -1,1 +1,4 @@
-"""Git changes to reviewable AI drafts, using Python's standard library."""
+"""Git 변경 수집·Gemini 요청·초안 출력을 담은 패키지.
+
+실행 흐름은 cli.main()에서 읽고, 호출되는 각 모듈에서 세부 처리를 확인한다.
+"""

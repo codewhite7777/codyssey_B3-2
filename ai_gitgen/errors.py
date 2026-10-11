@@ -1,2 +1,9 @@
+"""여러 모듈에서 발생하는 사용자 안내용 오류의 공통 타입을 정의한다."""
+
+
 class UserError(Exception):
-    """An expected failure that the CLI can explain without a traceback."""
+    """Git·설정·통신·생성 결과의 예상 가능한 실패를 CLI에 전달한다.
+
+    각 모듈은 원인을 메시지로 담아 발생시키고, cli.main()이 잡아서
+    [ERROR] 안내와 종료 코드 1로 바꾼다. 모든 프로그래밍 오류를 숨기지는 않는다.
+    """
