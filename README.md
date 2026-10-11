@@ -4,12 +4,20 @@ Git 변경 사항을 **Google Gemini**로 요약해 커밋 메시지와 PR 설�
 
 ## 1. 처음 실행하기
 
-아래는 **macOS 터미널 기준**입니다. Git과 Python 3.10 이상이 필요하며, 별도 Python 패키지를 설치할 필요는 없습니다.
+아래는 **macOS 터미널 기준**입니다. Git과 Python 3.10 이상이 필요하며, 이 프로젝트를 위한 추가 Python 패키지는 없습니다.
 
 ```bash
 git --version
 python3 --version
 ```
+
+두 명령에서 버전이 표시되고 **Python이 3.10 이상이면 1-1로 진행**합니다. 준비되지 않았다면 다음과 같이 설치합니다.
+
+- **Git이 없으면:** `xcode-select --install`을 실행하고 나타나는 설치 창을 따라 완료합니다. [Git 공식 macOS 설치 안내](https://git-scm.com/install/mac)
+- **Python이 없거나 3.10 미만이면:** [Python 공식 macOS 다운로드](https://www.python.org/downloads/macos/)에서 안정 버전의 `macOS installer`를 받아 `.pkg` 파일을 실행합니다.
+- **python.org 설치 프로그램을 사용했다면:** 응용 프로그램의 `Python 3.x` 폴더에서 `Install Certificates.command`를 더블클릭해 인증서 설치까지 마칩니다. `3.x`는 설치한 버전이며, HTTPS API 연결에 필요한 Python 설치 과정입니다. [Python 공식 설치 완료 안내](https://docs.python.org/3/using/mac.html#installation-steps)
+
+설치 후 터미널을 새로 열고 위의 두 버전 확인 명령을 다시 실행합니다.
 
 ### 1-1. 프로젝트 다운로드
 
@@ -24,7 +32,7 @@ cd codyssey_B3-2
 
 ### 1-2. API Key 입력
 
-발급받은 **Gemini API Key**를 준비합니다. 아래 명령만 먼저 실행하세요.
+아직 Key가 없다면 [Google AI Studio API Key 페이지](https://aistudio.google.com/apikey)에 Google 계정으로 로그인해 **Gemini API Key**를 발급받습니다. 이미 발급했다면 그 Key를 사용합니다. Key가 준비되면 아래 명령만 먼저 실행하세요.
 
 ```bash
 read -r -s AI_API_KEY
