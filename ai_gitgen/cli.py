@@ -8,9 +8,9 @@ import sys
 from .api_client import generate_text
 from .config import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, DEFAULT_TEMPERATURE, load_api_key
 from .errors import UserError
-from .formatting import format_commit
+from .formatting import format_commit, format_pr
 from .git_changes import collect_changes
-from .prompts import COMMIT_SYSTEM_INSTRUCTION, build_commit_prompt
+from .prompts import COMMIT_SYSTEM_INSTRUCTION, PR_SYSTEM_INSTRUCTION, build_change_prompt
 from .safety import MAX_DIFF_LINES, MAX_FILES, limit_changes, redact, redact_changes
 
 
@@ -42,7 +42,7 @@ def _positive_int(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Git 변경 사항으로 커밋 초안 생성 (PR 생성은 다음 단계)",
+        description="Git 변경 사항으로 커밋 메시지와 PR 초안 생성",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("command", choices=("inspect", "commit", "pr"))
@@ -101,12 +101,12 @@ def main(argv: list[str] | None = None) -> int:
             partial = changes.diff_lines < original_lines
             if partial:
                 print("[WARN] 전송 제한으로 일부 변경만 AI 입력에 포함합니다.")
-        if arguments.command == "pr":
-            raise UserError("PR 초안 생성은 다음 단계입니다. 현재는 commit 명령을 사용해 주세요.")
         if not changes.diff_lines:
             print("[INFO] 전송할 diff가 없습니다.")
             return 0
-        prompt = build_commit_prompt(changes, redact(arguments.context, api_key), partial)
+        is_pr = arguments.command == "pr"
+        instruction = PR_SYSTEM_INSTRUCTION if is_pr else COMMIT_SYSTEM_INSTRUCTION
+        prompt = build_change_prompt(changes, redact(arguments.context, api_key), partial)
         print(redact(
             f"[INFO] Gemini 요청 설정: model={arguments.model}, "
             f"temperature={arguments.temperature}, max_tokens={arguments.max_tokens}",
@@ -117,12 +117,13 @@ def main(argv: list[str] | None = None) -> int:
         response = generate_text(
             api_key=api_key, model=arguments.model,
             temperature=arguments.temperature, max_tokens=arguments.max_tokens,
-            system_instruction=COMMIT_SYSTEM_INSTRUCTION, prompt=prompt,
+            system_instruction=instruction, prompt=prompt,
         )
-        output, adjusted = format_commit(response, secret=api_key)
+        formatter = format_pr if is_pr else format_commit
+        output, adjusted = formatter(response, secret=api_key)
         if adjusted:
-            print("[WARN] 커밋 제목의 공백 또는 길이를 정리했습니다. 내용을 검토해 주세요.")
-        print("[DONE] 커밋 메시지 생성 완료")
+            print(f"[WARN] {'PR' if is_pr else '커밋'} 제목의 공백 또는 길이를 정리했습니다. 내용을 검토해 주세요.")
+        print(f"[DONE] {'PR 초안' if is_pr else '커밋 메시지'} 생성 완료")
         print(output)
         print("[INFO] AI가 만든 초안입니다. 변경 내용과 제목을 검토한 뒤 적용해 주세요.")
         return 0

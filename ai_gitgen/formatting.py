@@ -1,4 +1,4 @@
-"""Validate generated commit fields and format terminal output locally."""
+"""Validate generated commit/PR fields and format terminal output locally."""
 
 import json
 
@@ -31,4 +31,44 @@ def format_commit(text: str, secret: str = "") -> tuple[str, bool]:
     lines = ["--- Change Summary ---"]
     lines.extend("- " + " ".join(redact(item, secret).split()) for item in summary)
     lines.extend(["", "--- Commit Message ---", title, "----------------------"])
+    return "\n".join(lines), title != masked_title
+
+
+def format_pr(text: str, secret: str = "") -> tuple[str, bool]:
+    """Return the PR draft with its required sections and title adjustment flag."""
+    try:
+        draft = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise UserError("AI가 생성한 PR 결과를 JSON으로 읽을 수 없습니다.") from error
+    if not isinstance(draft, dict):
+        raise UserError("PR 결과는 title과 필수 목록을 가진 JSON 객체여야 합니다.")
+    original_title = draft.get("title")
+    if not isinstance(original_title, str) or not original_title.strip():
+        raise UserError("PR 제목(title)은 비어 있지 않은 문자열이어야 합니다.")
+    fields = ("summary", "why", "what", "how_to_test")
+    for field in fields:
+        items = draft.get(field)
+        if not isinstance(items, list) or not items or any(
+            not isinstance(item, str) or not item.strip() for item in items
+        ):
+            raise UserError(f"PR의 {field}는 비어 있지 않은 문자열 목록이어야 합니다.")
+
+    # Mask decoded strings before enforcing the title length or building bullets.
+    masked_title = redact(original_title, secret)
+    title = " ".join(masked_title.split())
+    if len(title) > 80:
+        title = title[:79].rstrip() + "…"
+    bullets = {
+        field: ["- " + " ".join(redact(item, secret).split()) for item in draft[field]]
+        for field in fields
+    }
+    lines = [
+        "--- Change Summary ---", *bullets["summary"], "",
+        "--- PR Title ---", title, "",
+        "--- PR Body ---",
+        "## Why", *bullets["why"], "",
+        "## What", *bullets["what"], "",
+        "## How to Test", *bullets["how_to_test"],
+        "----------------------",
+    ]
     return "\n".join(lines), title != masked_title
