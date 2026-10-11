@@ -1,10 +1,16 @@
-"""Describe commit and PR tasks separately from HTTP and output formatting."""
+"""Gemini에 전달할 작성 규칙과 Git 변경 자료를 구성한다.
+
+작성 규칙은 아래 문자열, 실제 자료는 build_change_prompt()가 만든 JSON이다.
+HTTP 통신은 api_client.py, 생성 결과의 형식 검사는 formatting.py가 담당한다.
+"""
 
 import json
 
 from .git_changes import GitChanges
 
 
+# 모델에게 요구하는 내용 규칙이다. 50자 권장·접두사·요약 1~3개를 요청하며,
+# Python의 강제 검사는 별도다. 커밋 본문은 선택 사항이므로 제목·요약만 생성한다.
 COMMIT_SYSTEM_INSTRUCTION = """Git 변경 자료를 근거로 한국어 커밋 초안을 작성하세요.
 JSON 객체 하나만 반환하세요: {"summary": ["변경 요약"], "title": "커밋 제목"}.
 summary는 실제 파일 또는 핵심 변경을 설명하는 비어 있지 않은 문자열 1~3개입니다.
@@ -16,6 +22,8 @@ partial_diff가 true이면 제공된 일부 변경만 요약하고 전체 변경
 """
 
 
+# why/what/how_to_test에 들어갈 문장을 요청한다. 실제 Markdown 헤더·불릿은
+# formatting.py가 붙인다. 변경 이유가 부족하면 확인 필요로 남기도록 요청한다.
 PR_SYSTEM_INSTRUCTION = """Git 변경 자료를 근거로 한국어 Pull Request 초안을 작성하세요.
 JSON 객체 하나만 반환하세요: {"summary": ["변경 요약"], "title": "PR 제목", "why": ["변경 배경"], "what": ["핵심 변경 사항"], "how_to_test": ["검증 절차"]}.
 summary는 실제 파일 또는 핵심 변경을 설명하는 비어 있지 않은 문자열 1~3개입니다.
@@ -33,7 +41,12 @@ partial_diff가 true이면 제공된 일부 변경만 요약하고 전체 변경
 def build_change_prompt(
     changes: GitChanges, context: str = "", partial: bool = False,
 ) -> str:
-    """Serialize only the selected, already redacted changes."""
+    """선택·마스킹을 마친 GitChanges와 변경 맥락을 JSON 문자열로 반환한다.
+
+    context는 사용자가 입력한 변경 이유이며, partial은 일부 diff만 담겼는지다.
+    이 함수는 키 치환·범위 제한을 다시 하지 않으므로 호출자가 처리한 값을 받는다.
+    """
+    # 브랜치·맥락·부분 전송 여부와 함께, 실제 diff가 있는 추적 파일만 포함한다.
     return json.dumps({
         "branch": changes.branch,
         "context": context,
@@ -49,4 +62,4 @@ def build_change_prompt(
             for item in changes.tracked_files
             if item.staged_diff or item.unstaged_diff
         ],
-    }, ensure_ascii=False)
+    }, ensure_ascii=False)  # 한국어를 유니코드 이스케이프 대신 읽을 수 있는 문자로 유지한다.
