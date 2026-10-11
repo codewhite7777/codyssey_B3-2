@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 
+from .config import load_api_key
 from .errors import UserError
 from .git_changes import collect_changes
 
@@ -30,7 +31,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "inspect":
             return 0
-        raise UserError("현재 단계는 Git 수집까지 구현되었습니다. AI 생성 기능은 다음 단계에서 연결합니다.")
+        load_api_key()
+        print("[INFO] AI_API_KEY 환경변수 설정을 확인했습니다.")
+        print("[INFO] Gemini API 호출 횟수: 0회")
+        raise UserError(
+            "Gemini API 호출과 초안 생성은 아직 구현되지 않았습니다. "
+            "현재 단계는 API Key 설정 확인까지입니다."
+        )
     except UserError as error:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 1
