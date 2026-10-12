@@ -1,7 +1,9 @@
 """CLI의 Git 수집→설정→요청→출력 연결을 실제 임시 Git과 가짜 HTTP 응답으로 검증합니다.
 
-main()은 같은 Python 프로세스에서 호출합니다. Git은 임시 저장소에서 실행하고
-HTTP 요청은 모의 응답으로 교체하므로 실제 Gemini 요청이나 사용자 저장소 변경은 없습니다.
+main()을 같은 Python 프로세스에서 호출하므로 별도 Python 실행이나 셸 동작까지 검사하지는 않습니다.
+Git 수집·환경변수 읽기·프롬프트·요청 구성·출력 정리는 실제 코드를 연결해 실행합니다.
+urlopen만 모의 응답으로 교체하므로 실제 Gemini 요청이나 사용자 저장소 변경은 없습니다.
+성공·조기 종료·오류별로 반환 코드, 출력 내용, 전송 자료, API 호출 시도 횟수를 비교합니다.
 """
 
 from contextlib import redirect_stderr, redirect_stdout
@@ -28,13 +30,22 @@ MISSING_KEY_MESSAGE = (
 
 
 class ApiKeyCliTests(RepositoryTestCase):
-    """명령별 성공·조기 종료·오류에서 출력과 요청 내용이 요구사항에 맞는지 확인합니다."""
+    """각 CLI 명령의 성공·조기 종료·오류에서 전체 연결이 요구사항에 맞는지 확인합니다.
+
+    RepositoryTestCase가 실제 임시 저장소를 준비하고 run_cli()가 환경과 HTTP 응답을 통제합니다.
+    각 test_*는 파일 변경을 만든 뒤 명령을 실행하며, request_data()로 전송할 자료도 검사합니다.
+    가짜 응답의 문장 품질을 평가하는 테스트가 아니라 구현한 각 단계의 연결을 확인하는 테스트입니다.
+    """
 
     def run_cli(self, command, key=None, *options, error=None, generated_text=None):
-        """명령과 옵션을 실행해 종료 코드·표준 출력·오류 출력을 반환합니다.
+        """테스트 명령을 실행하고 종료 코드·표준 출력·오류 출력을 묶어 반환합니다.
 
-        key에는 테스트용 가짜 값만 넣고, error 또는 generated_text로 HTTP 결과를 정합니다.
-        실제 임시 저장소에서 Git은 실행하지만 별도 Python 프로세스는 띄우지 않습니다.
+        command/*options는 CLI 입력이며 key에는 테스트용 가짜 값만 받습니다.
+        error를 주면 요청 실패를, generated_text를 주면 해당 생성 결과를 모의 응답으로 만듭니다.
+        두 값을 생략하면 해당 명령에 맞는 정상 초안을 준비하며 실제 Gemini에는 보내지 않습니다.
+        임시 저장소로 이동해 main()을 직접 호출하고, argparse의 SystemExit도 결과 코드로 받습니다.
+        with 블록은 환경변수·HTTP 함수·출력 대상을 복구하고 finally는 작업 폴더를 되돌립니다.
+        반환하는 CompletedProcess는 결과를 담는 용도이며 별도 Python 프로세스를 실행하지 않습니다.
         """
         environment = os.environ.copy()
         # 사용자의 실제 Key가 섞이지 않도록 관련 변수를 제거하고 테스트용 값만 넣습니다.
@@ -88,7 +99,12 @@ class ApiKeyCliTests(RepositoryTestCase):
         )
 
     def request_data(self):
-        """가짜 HTTP 호출이 받은 Request와 요청 본문, 그 안의 Git 프롬프트를 꺼내 반환합니다."""
+        """직전 모의 HTTP 호출에서 요청 객체와 해석한 JSON 두 단계를 꺼냅니다.
+
+        run_cli()가 저장한 self.http_mock에서 Request를 가져오므로 요청을 한 뒤에 사용해야 합니다.
+        Request.data는 REST 본문 JSON이며, 그 안의 contents 텍스트는 Git 자료를 담은 JSON 문자열입니다.
+        둘을 차례로 해석해 (request, payload, prompt)를 반환하며 새 요청이나 상태 변경은 하지 않습니다.
+        """
         request = self.http_mock.call_args.args[0]
         payload = json.loads(request.data.decode("utf-8"))
         # HTTP 본문과 contents 안의 프롬프트 문자열은 서로 다른 JSON이므로 각각 해석합니다.
@@ -96,7 +112,12 @@ class ApiKeyCliTests(RepositoryTestCase):
         return request, payload, prompt
 
     def test_generation_commands_report_missing_keys_without_a_traceback(self):
-        """추적 파일 변경이 있어도 Key가 없으면 안내 오류로 끝나고 HTTP 요청을 하지 않는지 확인합니다."""
+        """변경이 준비된 상태에서 Key 누락 검사가 API 호출보다 먼저 동작하는지 확인합니다.
+
+        기준 파일을 수정하고 commit/pr 각각에 Key 미설정·빈 값·공백 값을 적용합니다.
+        run_cli() 결과가 종료 코드 1, 설정 안내 오류, API 호출 0회인지 검사합니다.
+        Traceback·Key 확인 로그·파일명도 출력되지 않는지 확인해 설정 실패를 이해하기 쉽게 처리하는지 봅니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         # 두 생성 명령에서 미설정·빈 값·공백만 있는 값을 같은 누락 상태로 다뤄야 합니다.
@@ -114,7 +135,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.http_mock.assert_not_called()
 
     def test_configured_key_generates_commit_and_pr_with_their_own_instructions(self):
-        """가짜 Key와 성공 응답으로 두 명령의 작성 규칙·기본 설정·최종 출력 연결을 확인합니다."""
+        """Key가 있으면 명령별 기본 설정과 작성 규칙으로 초안 출력까지 연결되는지 확인합니다.
+
+        추적 파일을 수정하고 가짜 Key 그대로인 경우와 주변 공백이 있는 경우로 두 명령을 실행합니다.
+        종료 코드 0, 모의 호출 1회, 기본 모델·temperature·토큰 값, Key 비노출을 확인합니다.
+        commit에는 커밋 규칙과 제목, pr에는 PR 규칙과 필수 본문 섹션이 적용되는지도 비교합니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         for command in ("commit", "pr"):
@@ -155,7 +181,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                         self.assertNotEqual(instruction, COMMIT_SYSTEM_INSTRUCTION)
 
     def test_generation_commands_mask_tracked_and_untracked_file_names(self):
-        """Key가 파일 이름과 diff에 있어도 로그·요청 본문에 원문으로 남지 않는지 확인합니다."""
+        """추적·미추적 파일의 이름과 diff에 포함된 현재 Key를 출력과 요청에서 가리는지 확인합니다.
+
+        두 종류의 파일명과 추적 파일 내용에 같은 가짜 Key를 넣고 commit/pr을 실행합니다.
+        로그의 경로는 [REDACTED]가 포함된 이름인지, 요청 본문에도 원래 Key가 없는지 검사합니다.
+        파일 내용뿐 아니라 변경 목록도 비밀값을 노출할 수 있으므로 함께 확인합니다.
+        """
         # 추적 파일은 diff 수집 대상, 미추적 파일은 목록 표시 대상이므로 두 경로를 함께 검사합니다.
         tracked_name = f"tracked-{FAKE_KEY}.py"
         untracked_name = f"new-{FAKE_KEY}.py"
@@ -177,7 +208,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertNotIn(FAKE_KEY.encode(), self.http_mock.call_args.args[0].data)
 
     def test_safe_mode_limits_combined_staged_and_unstaged_request_input(self):
-        """동일 변경에서 안전 모드 ON/OFF의 전송 줄 수·부분 입력 표시·마스킹을 비교합니다."""
+        """안전 모드가 전체 전송 줄 수를 제한하고 일부만 보냈다는 사실을 알리는지 확인합니다.
+
+        한 파일을 staged 100줄 추가 후 unstaged 120줄 추가해 두 diff의 합이 200줄을 넘게 만듭니다.
+        같은 변경에 --safe-mode를 켜고 끈 결과를 비교하여 전송 200줄·partial_diff·경고의 차이를 검사합니다.
+        두 명령 모두에서 동작하고 현재 Key 마스킹은 안전 모드와 관계없이 적용되는지도 확인합니다.
+        """
         tracked_name = f"app-{FAKE_KEY}.py"
         self.baseline(name=tracked_name)
         # 스테이징한 100줄 뒤에 120줄을 더 수정하여 두 diff의 합이 200줄을 넘게 만듭니다.
@@ -237,7 +273,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
 
     def test_inspect_with_tracked_changes_does_not_require_a_key(self):
-        """inspect는 변경을 수집해 안내하지만 Key를 요구하거나 API를 호출하지 않는지 확인합니다."""
+        """inspect가 Git 수집만 수행하며 Key나 AI 요청은 필요로 하지 않는지 확인합니다.
+
+        추적 파일을 수정하고 Key 없이 run_cli('inspect')를 실행합니다.
+        변경 수집 안내와 종료 코드 0을 확인하고 Key 확인·마스킹 로그·HTTP 호출이 없는지 검사합니다.
+        생성 명령과 로컬 점검 명령의 역할을 구분하기 위한 테스트입니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         result = self.run_cli("inspect")
@@ -249,7 +290,12 @@ class ApiKeyCliTests(RepositoryTestCase):
         self.http_mock.assert_not_called()
 
     def test_clean_repository_does_not_require_a_key(self):
-        """수정이 없으면 모든 명령이 Key 검사·HTTP 요청 없이 변경 없음 안내로 끝나는지 확인합니다."""
+        """변경 없음 처리가 Key 검사보다 먼저 이뤄지는지 확인합니다.
+
+        기준 커밋만 있는 저장소에서 Key 없이 inspect/commit/pr을 차례로 실행합니다.
+        모두 변경 없음 안내와 종료 코드 0을 반환하며 Key 확인·HTTP 호출은 없어야 합니다.
+        생성 명령의 호출 0회 로그도 확인하여 보낼 변경이 없을 때 요청을 생략하는 흐름을 검증합니다.
+        """
         self.baseline()
         for command in ("inspect", "commit", "pr"):
             with self.subTest(command=command):
@@ -264,7 +310,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
 
     def test_untracked_only_repository_does_not_require_a_key(self):
-        """미추적 파일만 있으면 git add를 안내하고 Key 검사·HTTP 요청 없이 종료하는지 확인합니다."""
+        """새 파일만 있고 git add하지 않았다면 등록 방법을 안내하고 생성을 생략하는지 확인합니다.
+
+        빈 임시 저장소에 파일만 작성한 뒤 Key 없이 세 명령을 실행합니다.
+        미추적 파일 안내·git add 안내·종료 코드 0을 확인하고 Key 검사·HTTP 호출은 없는지 봅니다.
+        Git diff로 읽을 내용이 아직 없는 상태를 일반적인 생성 실패와 구분하는 테스트입니다.
+        """
         (self.root / "new.py").write_text("value = 1\n", encoding="utf-8")
         for command in ("inspect", "commit", "pr"):
             with self.subTest(command=command):
@@ -280,7 +331,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.assertIn("[INFO] Gemini API 호출 횟수: 0회", result.stdout)
 
     def test_options_context_and_redacted_diff_reach_the_gemini_request(self):
-        """CLI 옵션은 API 설정으로, 마스킹한 브랜치·경로·맥락·diff는 프롬프트로 전달되는지 확인합니다."""
+        """사용자가 바꾼 옵션과 변경 자료가 요청의 올바른 위치로 전달되는지 확인합니다.
+
+        브랜치·경로·diff·--context에 가짜 Key를 넣고 기본값과 다른 모델·temperature·토큰 값을 지정합니다.
+        run_cli() 후 request_data()로 URL·헤더·generationConfig·프롬프트를 나누어 검사합니다.
+        인증 헤더에는 Key를 유지하되 프롬프트와 출력에서는 가리는지, 옵션 값이 실제 요청에 반영되는지 봅니다.
+        """
         # 서로 다른 입력 위치에 같은 가짜 Key를 넣어 수집 이후 전송 전 마스킹을 확인합니다.
         tracked_name = f"app-{FAKE_KEY}.py"
         self.baseline(name=tracked_name)
@@ -321,7 +377,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
 
     def test_request_errors_report_the_cause_without_retrying_or_exposing_the_key(self):
-        """권한 오류·연결 실패가 발생하면 원인과 시도 횟수를 출력하되 재시도·Key 노출은 없는지 확인합니다."""
+        """API 계층의 실패가 CLI까지 전달되어 원인 있는 오류로 출력되는지 확인합니다.
+
+        추적 파일 변경을 준비하고 HTTP 403과 연결 실패를 run_cli()의 error로 각각 전달합니다.
+        종료 코드 1, 오류 종류·원인, 호출 1회를 검사하며 완료 문구나 Traceback은 없어야 합니다.
+        원문에 담긴 Key가 가려지는지와 자동 재시도가 없는지도 확인합니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         for command in ("commit", "pr"):
@@ -349,7 +410,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                     self.assertNotIn(FAKE_KEY, result.stdout + result.stderr)
 
     def test_invalid_options_stop_before_a_request(self):
-        """잘못된 모델 이름·숫자 범위·정수 형식은 종료 코드 2로 거절하고 API를 호출하지 않는지 확인합니다."""
+        """잘못된 CLI 옵션을 API 호출 전에 종료 코드 2로 거절하는지 확인합니다.
+
+        변경 파일과 가짜 Key를 준비한 뒤 잘못된 모델 경로, 숫자 범위, 토큰 형식을 각각 전달합니다.
+        run_cli()가 argparse의 종료 코드를 받아 오류 출력과 함께 반환하는지 검사합니다.
+        HTTP 호출과 완료 문구가 없는지도 확인해 잘못된 입력으로 비용을 쓰지 않게 합니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         invalid_options = (
@@ -371,7 +437,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertNotIn("[DONE]", result.stdout)
 
     def test_invalid_generated_json_fails_after_one_request_without_echoing_it(self):
-        """요청은 성공해도 생성 필수 항목이 잘못되면 초안과 원문을 출력하지 않는지 확인합니다."""
+        """HTTP 성공 이후에도 생성 내용의 필수 항목 검사가 적용되는지 확인합니다.
+
+        커밋에는 빈 제목, PR에는 누락된 본문 항목을 가진 JSON을 모의 성공 응답으로 전달합니다.
+        run_cli() 결과의 종료 코드 1·오류·호출 1회를 확인하고 초안 헤더와 완료 문구는 없어야 합니다.
+        입력에 넣은 원문 표식이 출력되지 않는지도 검사해 잘못된 생성 결과를 그대로 노출하지 않게 합니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         raw_marker = "RAW_GENERATED_CONTENT_SHOULD_NOT_BE_PRINTED"
@@ -393,7 +464,12 @@ class ApiKeyCliTests(RepositoryTestCase):
                 self.assertNotIn(raw_marker, result.stdout + result.stderr)
 
     def test_pr_warns_when_normalizing_its_title_and_masks_generated_fields(self):
-        """PR 제목 후처리 경고와 모든 항목의 마스킹이 CLI 최종 출력까지 반영되는지 확인합니다."""
+        """PR 제목 후처리와 Key 마스킹이 최종 화면 및 경고에 반영되는지 확인합니다.
+
+        여러 줄·길이 초과 제목과 JSON 이스케이프된 가짜 Key를 모든 항목에 넣어 모의 응답을 만듭니다.
+        run_cli('pr')의 성공·호출 1회·제목 조정 경고·마스킹 표식 5곳을 검사합니다.
+        출력 제목도 직접 추출해 예상 문장과 최대 80자를 확인하므로 포맷 함수와 CLI의 연결까지 검증합니다.
+        """
         self.baseline()
         (self.root / "app.py").write_text("value = 2\n", encoding="utf-8")
         draft = {
