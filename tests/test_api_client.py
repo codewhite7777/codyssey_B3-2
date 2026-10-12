@@ -1,6 +1,8 @@
 """HTTP 호출을 가짜 응답·오류로 교체해 Gemini 요청 구성과 응답 해석을 검증합니다.
 
-실제 API Key와 네트워크 없이 성공·실패 상황을 반복해서 확인하는 테스트입니다.
+generate_text() 안의 urlopen만 patch로 교체하고, 요청 구성과 응답 검사는 실제 함수를 실행합니다.
+BytesIO는 서버 응답처럼 read할 수 있는 메모리 데이터이며, side_effect는 통신 예외를 흉내 냅니다.
+실제 Key·네트워크·요금 없이 성공과 실패 처리를 검증하며, 실제 모델의 글쓰기 품질은 검증하지 않습니다.
 """
 
 from contextlib import redirect_stderr, redirect_stdout
@@ -26,7 +28,12 @@ OPTIONS = {
 
 
 def completed_response(parts=None):
-    """정상 종료된 Gemini 응답 구조를 만들며, parts를 주면 그 내용을 응답에 넣습니다."""
+    """Gemini의 정상 종료 응답을 사전으로 만들어 반환합니다.
+
+    parts에는 테스트할 텍스트 조각 목록을 넣으며, 생략하면 커밋 제목 JSON 한 조각을 사용합니다.
+    candidates → content → parts 구조와 정상 종료 값 STOP을 준비합니다.
+    반환값은 각 테스트에서 JSON 바이트로 바꿔 모의 HTTP 응답에 사용하며, 네트워크는 호출하지 않습니다.
+    """
     return {"candidates": [{
         "finishReason": "STOP",
         "content": {"parts": parts if parts is not None else [{"text": '{"title":"docs: 안내 수정"}'}]},
@@ -34,10 +41,19 @@ def completed_response(parts=None):
 
 
 class GeminiApiClientTests(unittest.TestCase):
-    """generate_text의 요청 형식·텍스트 추출·실패 원인 안내를 검증합니다."""
+    """generate_text()의 REST 요청 형식, 텍스트 추출, 실패 원인 안내를 검증합니다.
+
+    OPTIONS에는 실제 Key 대신 가짜 값과 비교하기 쉬운 모델·숫자·프롬프트를 넣었습니다.
+    테스트마다 urlopen의 반환값이나 예외를 지정하고, 호출 횟수와 최종 반환값·오류를 확인합니다.
+    """
 
     def test_request_contract_and_single_call_without_printing(self):
-        """정상 응답에서 텍스트를 추출하고, 요청 URL·헤더·본문·호출 횟수가 맞는지 확인합니다."""
+        """입력 옵션이 한 번의 REST 요청으로 구성되고 정상 텍스트가 반환되는지 확인합니다.
+
+        정상 응답을 BytesIO로 준비한 뒤 urlopen 대신 반환하도록 설정하고 generate_text()를 호출합니다.
+        추출된 JSON 문자열, POST 주소·헤더·본문·30초 제한, 요청 1회를 각각 검사합니다.
+        Key가 인증 헤더에만 있고 URL·프롬프트·터미널 출력에는 없는지도 확인합니다.
+        """
         # BytesIO는 네트워크 응답처럼 read할 수 있는 메모리 데이터이며 실제 전송은 하지 않습니다.
         response = io.BytesIO(json.dumps(completed_response()).encode("utf-8"))
         stdout = io.StringIO()
@@ -75,7 +91,12 @@ class GeminiApiClientTests(unittest.TestCase):
         self.assertEqual(stderr.getvalue(), "")
 
     def test_combines_text_parts_and_omits_thoughts(self):
-        """여러 응답 조각 중 최종 텍스트만 합치고 thought와 서명 정보는 제외하는지 확인합니다."""
+        """응답이 여러 조각이어도 사용자에게 보낼 최종 텍스트만 합치는지 확인합니다.
+
+        생각 텍스트, 나뉜 JSON 텍스트, 서명 정보가 섞인 parts를 모의 응답으로 준비합니다.
+        generate_text()의 결과가 최종 JSON 조각만 이어진 문자열인지 비교합니다.
+        thought나 서명 데이터를 커밋·PR 초안에 섞지 않고 요청도 한 번만 하는지 봅니다.
+        """
         body = completed_response([
             {"text": "분석 중인 내용", "thought": True},
             {"text": '{"title":'},
@@ -87,7 +108,12 @@ class GeminiApiClientTests(unittest.TestCase):
             open_url.assert_called_once()
 
     def test_rejects_blocked_empty_and_malformed_response_data(self):
-        """차단·빈 응답·잘못된 자료형을 정상 생성 결과로 받아들이지 않는지 확인합니다."""
+        """정상 텍스트를 찾을 수 없는 응답을 성공으로 처리하지 않는지 확인합니다.
+
+        차단 응답, 빈 candidates, 잘못된 content/parts/text 자료형 등 오류 위치별 자료를 준비합니다.
+        각 응답으로 generate_text()를 실행해 UserError가 발생하고 호출은 한 번인지 검사합니다.
+        subTest는 여러 입력 중 어느 구조에서 검사가 실패했는지 구분해 줍니다.
+        """
         # 바깥 응답 객체부터 candidates, content, parts, text까지 잘못될 수 있는 위치를 나눕니다.
         cases = [
             None,
@@ -116,7 +142,12 @@ class GeminiApiClientTests(unittest.TestCase):
                     open_url.assert_called_once()
 
     def test_rejects_truncated_and_other_finish_reasons(self):
-        """정상 종료 STOP이 아닌 응답을 거절하고 토큰 부족이면 설정 안내도 제공하는지 확인합니다."""
+        """정상 종료 STOP이 아니면 불완전한 텍스트를 결과로 사용하지 않는지 확인합니다.
+
+        응답의 finishReason을 토큰 부족·안전 차단·기타 사유·누락으로 바꿔 generate_text()를 실행합니다.
+        모든 경우에 UserError가 나고, MAX_TOKENS에는 잘림 설명과 --max-tokens 안내가 있어야 합니다.
+        다른 사유도 오류에 표시되는지와 자동 재요청이 없는지를 함께 검사합니다.
+        """
         for reason in ("MAX_TOKENS", "SAFETY", "RECITATION", None):
             with self.subTest(reason=reason):
                 body = completed_response()
@@ -133,7 +164,12 @@ class GeminiApiClientTests(unittest.TestCase):
                     self.assertIn(reason or "종료 사유 없음", message)
 
     def test_http_errors_include_status_and_mask_key_without_retry(self):
-        """HTTP 오류의 상태·원인을 안내하되 Key나 원문 HTML을 드러내거나 재시도하지 않는지 확인합니다."""
+        """HTTP 실패 원인을 설명하면서 서버 원문이나 Key를 그대로 출력하지 않는지 확인합니다.
+
+        400·403·429·503·404 오류에 JSON, HTML, 깨진 바이트 등을 넣은 HTTPError를 준비합니다.
+        side_effect로 예외를 발생시켜 generate_text()가 상태 번호와 적절한 원인을 UserError로 전달하는지 봅니다.
+        Key 마스킹·HTML 원문 제외·요청 1회도 검사해 오류 처리 중 정보 노출과 재시도를 막습니다.
+        """
         # 서버의 JSON 오류를 읽을 수 있는 경우와 HTML·깨진 문자처럼 읽을 수 없는 경우를 준비합니다.
         cases = [
             (400, json.dumps({"error": {"message": f"API key not valid: {FAKE_KEY}"}}).encode(), "API key not valid: [REDACTED]"),
@@ -158,7 +194,12 @@ class GeminiApiClientTests(unittest.TestCase):
                 self.assertNotIn("<html>", message)
 
     def test_network_errors_are_explained_without_key_or_retry(self):
-        """연결 실패·타임아웃·읽기 오류를 구분하고 오류 문장의 Key를 가리는지 확인합니다."""
+        """HTTP 통신 관련 예외를 이해할 수 있는 오류로 바꾸는지 확인합니다.
+
+        URLError, 그 안에 담긴 TimeoutError, 직접 발생한 TimeoutError와 OSError를 준비합니다.
+        generate_text() 실행 시 각 원인이 연결 실패·시간 초과·통신 오류로 안내되는지 검사합니다.
+        오류 원문에 섞인 가짜 Key가 사라지고 요청은 한 번만 시도되는지도 확인합니다.
+        """
         cases = [
             (URLError(f"Connection failed: {FAKE_KEY}"), "연결 실패"),
             (URLError(TimeoutError("timed out")), "시간이 초과"),
@@ -175,7 +216,12 @@ class GeminiApiClientTests(unittest.TestCase):
                 self.assertNotIn(FAKE_KEY, str(raised.exception))
 
     def test_rejects_invalid_json_and_utf8(self):
-        """응답이 깨진 JSON이거나 UTF-8이 아니면 해석 실패를 설명하는 오류가 나는지 확인합니다."""
+        """응답의 문자 해석이나 JSON 파싱이 실패했을 때 안내 오류로 바꾸는지 확인합니다.
+
+        닫히지 않은 JSON 바이트와 UTF-8로 읽을 수 없는 바이트를 각각 응답으로 준비합니다.
+        generate_text()가 'UTF-8 JSON'을 포함한 UserError를 내는지와 요청 1회를 검사합니다.
+        내부 디코딩 예외가 그대로 드러나거나 잘못된 응답을 성공으로 넘기지 않게 합니다.
+        """
         for body in (b"{broken", b"\xff"):
             with self.subTest(body=body):
                 with patch("ai_gitgen.api_client.urlopen", return_value=io.BytesIO(body)) as open_url:
